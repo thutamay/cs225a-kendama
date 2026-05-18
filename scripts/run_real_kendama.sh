@@ -14,6 +14,7 @@ OPENSAI_CONFIG_NAME="$(basename "${OPENSAI_CONFIG}")"
 OPENSAI_CONFIG_KEY="::sai-interfaces-webui::config_file_name"
 PYTHON_SCRIPT="${REPO_DIR}/kendama_throw_and_catch.py"
 ZERO_JOINTS="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"
+CONTROL_TORQUES_KEY="opensai::commands::Titania::control_torques"
 
 DRIVER_PID=""
 OPENSAI_PID=""
@@ -86,7 +87,11 @@ seed_joint_hold_goal() {
     redis-cli SET "opensai::controllers::Titania::joint_controller::joint_task::goal_position" "${current_q}" >/dev/null
     redis-cli SET "opensai::controllers::Titania::joint_controller::joint_task::goal_velocity" "${ZERO_JOINTS}" >/dev/null
     redis-cli SET "opensai::controllers::Titania::joint_controller::joint_task::goal_acceleration" "${ZERO_JOINTS}" >/dev/null
-    redis-cli SET "opensai::commands::Titania::control_torques" "${ZERO_JOINTS}" >/dev/null
+    redis-cli SET "${CONTROL_TORQUES_KEY}" "${ZERO_JOINTS}" >/dev/null
+}
+
+clear_torque_command() {
+    redis-cli SET "${CONTROL_TORQUES_KEY}" "${ZERO_JOINTS}" >/dev/null
 }
 
 wait_for_opensai_startup_with_joint_hold() {
@@ -132,6 +137,9 @@ ln -sfn "$(basename "${OPENSAI_LOG}")" "${LOG_DIR}/latest_opensai.log"
 
 echo "Refreshing sudo credentials for the Flexiv driver."
 sudo -v
+
+echo "Clearing stale Redis torque command before starting the driver."
+clear_torque_command
 
 echo "Starting Flexiv Redis driver. Log: ${DRIVER_LOG}"
 cd "${DRIVER_DIR}"

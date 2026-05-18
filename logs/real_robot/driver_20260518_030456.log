@@ -1,0 +1,89 @@
+Using Rizon 4 specifications
+[2026-05-18 03:04:56.330] [info] | | | | | | | | | |  Flexiv RDK v1.9  | | | | | | | | | |
+[2026-05-18 03:04:57.435] [info] [flexiv::rdk::Robot] Searching for [Rizon4R-062043] ...
+[2026-05-18 03:04:57.485] [info] [flexiv::rdk::Robot] Connected to the robot
+[2026-05-18 03:04:57.636] [info] [flexiv::rdk::Robot] Validated license: RDK-Professional
+[2026-05-18 03:04:57.637] [info] [flexiv::rdk::Robot] Initialization complete
+[2026-05-18 03:04:57.639] [info] Enabling robot ...
+[2026-05-18 03:04:57.740] [info] Robot is now operational
+[2026-05-18 03:04:57.760] [info] [flexiv::rdk::Robot] Control mode switched to [NRT_PRIMITIVE_EXECUTION]
+[2026-05-18 03:04:57.780] [info] Zeroing force/torque sensors, make sure nothing is in contact with the robot
+[2026-05-18 03:04:58.781] [info] Sensor zeroing complete
+[2026-05-18 03:05:10.781] [info] Initialization complete
+[2026-05-18 03:05:10.831] [info] [flexiv::rdk::Robot] Control mode switched to [RT_JOINT_TORQUE]
+Initial torque bias:   -0.0394079   -0.0577895   0.00526345     0.504982 -0.000545956   0.00186189     0.334608
+WARNING : Torque commanded on joint 0 too high (121.786), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too low (-123.666), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-121.33), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-227.561), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-219.193), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-210.72), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-202.241), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-190.818), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-176.224), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-161.232), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-146.489), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-132.811), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-121.464), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too high (136.363), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (130.315), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (124.675), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (121.013), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too low (-124.603), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-132.003), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-137.627), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-141.221), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-141.254), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-138.321), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-132.559), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-122.69), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too high (128.047), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (142.347), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (154.015), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (161.139), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (164.909), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (164.261), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (164.956), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (158.918), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (148.561), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (135.373), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too low (-130.072), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-141.787), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-151.755), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-157.734), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-157.935), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-154.346), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-146.138), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-133.969), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too high (127.944), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (138.823), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (144.537), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (144.988), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (141.86), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (131.066), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (128.146), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (122.922), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too low (-120.839), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-131.034), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-139.464), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-145.072), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-149.065), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-151.457), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-152.316), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-150.546), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-145.895), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-140.343), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-132.044), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too low (-121.303), saturating to min value(-120.54)
+WARNING : Torque commanded on joint 0 too high (131.211), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (141.502), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (148.181), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (150.642), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (149.146), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (144.551), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (138.282), saturating to max value(120.54)
+WARNING : Torque commanded on joint 0 too high (130.723), saturating to max value(120.54)
+Error 
+
+[2026-05-18 03:06:15.254] [error] [flexiv::rdk::Robot::StreamJointTorque] Robot is not operational: E-Stop not released
+[2026-05-18 03:06:15.292] [info] >>>>> Flexiv RDK exited <<<<<

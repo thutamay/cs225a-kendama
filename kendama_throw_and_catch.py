@@ -4,10 +4,13 @@ import json
 import redis
 import math
 import argparse
+import os
+import xml.etree.ElementTree as ET
 from enum import Enum, auto
 from dataclasses import dataclass
 
 DEG_TO_RAD = math.pi / 180.0
+OPENSAI_ROBOT_FILES_DIR = "/home/src1/OpenSai/config_folder/robot_files"
 
 class State(Enum):
     RESETTING_JOINTS = auto()
@@ -29,9 +32,11 @@ ENV = "real" if args.real else "simulation"
 if ENV == "real":
     robot_name = "Titania"
     config_file_for_this_example = real_robot_config_file
+    robot_model_file = os.path.join(OPENSAI_ROBOT_FILES_DIR, "Rizon4R.urdf")
 else:
     robot_name = "Rizon4r"
     config_file_for_this_example = simulation_config_file
+    robot_model_file = os.path.join(OPENSAI_ROBOT_FILES_DIR, "Rizon4r_with_kendama_parallel.urdf")
 
 @dataclass
 class RedisKeys:
@@ -79,8 +84,8 @@ LOWERED_START_JOINT_POS_PARALLEL_Y = np.array([
 default_joint_pos = LOWERED_START_JOINT_POS_PARALLEL_Y
 
 # Motion + timing parameters
-joint_arrival_threshold = 8e-2   # rad; loosened so real robot reset does not get stuck forever
-reset_timeout = 25.0              # seconds; real reset aborts on timeout
+joint_arrival_threshold = 0.10    # rad max per-joint error before leaving reset
+reset_timeout = 35.0              # seconds; real reset aborts on timeout
 reset_ramp_duration = 20.0        # seconds; avoid a large joint-space step on hardware
 idle_hold_duration = 1.0
 jolt_height = 0.01         # meters cup rises during JOLT_UP
@@ -94,6 +99,7 @@ auto_repeat = False         # set True to loop continuously
 rest_cup_pos = None
 rest_cup_ori = None
 reset_start_joint_pos = None
+flange_fk_chain = None
 
 # State tracking
 state = State.RESETTING_JOINTS
@@ -141,6 +147,142 @@ def set_joint_goal(position):
     )
 
 
+def rotation_from_rpy(rpy):
+    roll, pitch, yaw = rpy
+
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+
+    rot_x = np.array([
+        [1.0, 0.0, 0.0],
+        [0.0, cr, -sr],
+        [0.0, sr, cr],
+    ])
+    rot_y = np.array([
+        [cp, 0.0, sp],
+        [0.0, 1.0, 0.0],
+        [-sp, 0.0, cp],
+    ])
+    rot_z = np.array([
+        [cy, -sy, 0.0],
+        [sy, cy, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+
+    return rot_z @ rot_y @ rot_x
+
+
+def rotation_from_axis_angle(axis, angle):
+    axis = np.asarray(axis, dtype=float)
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm == 0.0:
+        raise RuntimeError("URDF joint axis has zero length")
+
+    x, y, z = axis / axis_norm
+    c = math.cos(angle)
+    s = math.sin(angle)
+    one_minus_c = 1.0 - c
+
+    return np.array([
+        [c + x * x * one_minus_c, x * y * one_minus_c - z * s, x * z * one_minus_c + y * s],
+        [y * x * one_minus_c + z * s, c + y * y * one_minus_c, y * z * one_minus_c - x * s],
+        [z * x * one_minus_c - y * s, z * y * one_minus_c + x * s, c + z * z * one_minus_c],
+    ])
+
+
+def homogeneous_transform(rotation, translation):
+    transform = np.eye(4)
+    transform[:3, :3] = rotation
+    transform[:3, 3] = np.asarray(translation, dtype=float)
+    return transform
+
+
+def parse_float_triplet(value, default):
+    if value is None:
+        return np.array(default, dtype=float)
+    return np.array([float(item) for item in value.split()], dtype=float)
+
+
+def load_urdf_chain_to_tip(urdf_path, tip_link):
+    tree = ET.parse(urdf_path)
+    root = tree.getroot()
+
+    joints_by_child = {}
+    for joint in root.findall("joint"):
+        parent = joint.find("parent").attrib["link"]
+        child = joint.find("child").attrib["link"]
+
+        origin = joint.find("origin")
+        xyz = parse_float_triplet(origin.attrib.get("xyz") if origin is not None else None, [0.0, 0.0, 0.0])
+        rpy = parse_float_triplet(origin.attrib.get("rpy") if origin is not None else None, [0.0, 0.0, 0.0])
+
+        axis = joint.find("axis")
+        axis_xyz = parse_float_triplet(axis.attrib.get("xyz") if axis is not None else None, [0.0, 0.0, 1.0])
+
+        joints_by_child[child] = {
+            "name": joint.attrib["name"],
+            "type": joint.attrib["type"],
+            "parent": parent,
+            "child": child,
+            "origin_xyz": xyz,
+            "origin_rpy": rpy,
+            "axis": axis_xyz,
+        }
+
+    chain = []
+    current_link = tip_link
+    while current_link in joints_by_child:
+        joint = joints_by_child[current_link]
+        chain.append(joint)
+        current_link = joint["parent"]
+
+    if not chain:
+        raise RuntimeError(f"Could not find kinematic chain to link {tip_link} in {urdf_path}")
+
+    chain.reverse()
+    actuated_joints = [joint for joint in chain if joint["type"] in ("revolute", "continuous", "prismatic")]
+    if len(actuated_joints) != 7:
+        raise RuntimeError(
+            f"Expected 7 actuated joints in chain to {tip_link}, found {len(actuated_joints)}"
+        )
+
+    return chain
+
+
+def compute_flange_pose_from_joints(joint_positions):
+    global flange_fk_chain
+
+    if flange_fk_chain is None:
+        flange_fk_chain = load_urdf_chain_to_tip(robot_model_file, "flange")
+
+    joint_positions = np.asarray(joint_positions, dtype=float)
+    if joint_positions.shape[0] != 7:
+        raise RuntimeError(f"Expected 7 joint positions for FK, got {joint_positions.shape[0]}")
+
+    transform = np.eye(4)
+    joint_index = 0
+    for joint in flange_fk_chain:
+        origin_rotation = rotation_from_rpy(joint["origin_rpy"])
+        transform = transform @ homogeneous_transform(origin_rotation, joint["origin_xyz"])
+
+        joint_type = joint["type"]
+        if joint_type in ("revolute", "continuous"):
+            transform = transform @ homogeneous_transform(
+                rotation_from_axis_angle(joint["axis"], joint_positions[joint_index]),
+                [0.0, 0.0, 0.0],
+            )
+            joint_index += 1
+        elif joint_type == "prismatic":
+            transform = transform @ homogeneous_transform(
+                np.eye(3),
+                joint["axis"] * joint_positions[joint_index],
+            )
+            joint_index += 1
+
+    return transform[:3, 3].copy(), transform[:3, :3].copy()
+
+
 def set_active_controller(controller_name):
     while redis_client.get(redis_keys.active_controller).decode("utf-8") != controller_name:
         redis_client.set(redis_keys.active_controller, controller_name)
@@ -183,8 +325,8 @@ def enter_cartesian_hold_from_current_pose():
             f"Expected {joint_controller} before Cartesian transition, got {active}"
         )
 
-    current_pos = get_json_array(redis_keys.cartesian_task_current_position)
-    current_ori = get_json_array(redis_keys.cartesian_task_current_orientation)
+    current_joint_position = get_current_joint_position()
+    current_pos, current_ori = compute_flange_pose_from_joints(current_joint_position)
 
     set_cartesian_goal(current_pos, current_ori)
     time.sleep(0.1)
@@ -242,10 +384,11 @@ try:
 
             current_joint_position = get_current_joint_position()
 
-            joint_error = np.linalg.norm(default_joint_pos - current_joint_position)
+            joint_errors = np.abs(default_joint_pos - current_joint_position)
+            joint_error = np.max(joint_errors)
 
             if loop_time - last_reset_print_time > 0.5:
-                print(f"Reset joint error: {joint_error:.4f}")
+                print(f"Reset max joint error: {joint_error:.4f}")
                 last_reset_print_time = loop_time
 
             reset_timed_out = (loop_time - reset_start_time) > reset_timeout
@@ -253,11 +396,11 @@ try:
             if joint_error < joint_arrival_threshold or reset_timed_out:
                 if reset_timed_out and ENV == "real":
                     raise RuntimeError(
-                        f"Reset timed out on real robot with joint_error={joint_error:.4f}; "
+                        f"Reset timed out on real robot with max_joint_error={joint_error:.4f}; "
                         "staying out of Cartesian mode."
                     )
                 if reset_timed_out:
-                    print(f"Reset timeout reached with joint_error={joint_error:.4f}; continuing.")
+                    print(f"Reset timeout reached with max_joint_error={joint_error:.4f}; continuing.")
                 else:
                     print("Default joint position reached. Capturing cup pose and going idle.")
                 rest_cup_pos, rest_cup_ori = enter_cartesian_hold_from_current_pose()
