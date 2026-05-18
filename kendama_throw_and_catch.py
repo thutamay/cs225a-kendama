@@ -145,6 +145,39 @@ def set_active_controller(controller_name):
         time.sleep(0.001)
 
 
+def get_json_array(key):
+    value = redis_client.get(key)
+    if value is None:
+        raise RuntimeError(f"Missing Redis key: {key}")
+    try:
+        return np.array(json.loads(value))
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not parse Redis key {key}: {value!r}") from exc
+
+
+def enter_cartesian_hold_from_current_pose():
+    active = redis_client.get(redis_keys.active_controller)
+    if active is None:
+        raise RuntimeError(f"Missing Redis key: {redis_keys.active_controller}")
+
+    active = active.decode("utf-8")
+    if active != joint_controller:
+        raise RuntimeError(
+            f"Expected {joint_controller} before Cartesian transition, got {active}"
+        )
+
+    current_pos = get_json_array(redis_keys.cartesian_task_current_position)
+    current_ori = get_json_array(redis_keys.cartesian_task_current_orientation)
+
+    set_cartesian_goal(current_pos, current_ori)
+    time.sleep(0.1)
+
+    set_active_controller(cartesian_controller)
+    set_cartesian_goal(current_pos, current_ori)
+
+    return current_pos, current_ori
+
+
 # loop at 200 Hz
 loop_time = 0.0
 dt = 0.005
@@ -171,6 +204,8 @@ try:
         time.sleep(max(0, loop_time - (time.perf_counter_ns() * 1e-9 - init_time)))
 
         if state == State.RESETTING_JOINTS:
+            set_joint_goal(default_joint_pos)
+
             # Use real sensor joint position in real mode; controller current_position can be stale.
             if ENV == "real":
                 current_joint_position = np.array(
@@ -190,19 +225,16 @@ try:
             reset_timed_out = (loop_time - reset_start_time) > reset_timeout
 
             if joint_error < joint_arrival_threshold or reset_timed_out:
+                if reset_timed_out and ENV == "real":
+                    raise RuntimeError(
+                        f"Reset timed out on real robot with joint_error={joint_error:.4f}; "
+                        "staying out of Cartesian mode."
+                    )
                 if reset_timed_out:
                     print(f"Reset timeout reached with joint_error={joint_error:.4f}; continuing.")
                 else:
                     print("Default joint position reached. Capturing cup pose and going idle.")
-                set_active_controller(cartesian_controller)
-                time.sleep(0.1)
-                rest_cup_pos = np.array(
-                    json.loads(redis_client.get(redis_keys.cartesian_task_current_position))
-                )
-                rest_cup_ori = np.array(
-                    json.loads(redis_client.get(redis_keys.cartesian_task_current_orientation))
-                )
-                set_cartesian_goal(rest_cup_pos, rest_cup_ori)
+                rest_cup_pos, rest_cup_ori = enter_cartesian_hold_from_current_pose()
                 print(f"kendama_big_cup rest position: {rest_cup_pos.tolist()}")
                 print(f"kendama_big_cup rest orientation:\n{rest_cup_ori}")
                 state = State.IDLE
