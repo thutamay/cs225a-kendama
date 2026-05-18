@@ -80,7 +80,8 @@ default_joint_pos = LOWERED_START_JOINT_POS_PARALLEL_Y
 
 # Motion + timing parameters
 joint_arrival_threshold = 8e-2   # rad; loosened so real robot reset does not get stuck forever
-reset_timeout = 12.0              # seconds; continue if close enough after timeout
+reset_timeout = 25.0              # seconds; real reset aborts on timeout
+reset_ramp_duration = 20.0        # seconds; avoid a large joint-space step on hardware
 idle_hold_duration = 1.0
 jolt_height = 0.01         # meters cup rises during JOLT_UP
 jolt_up_duration = 0.60     # seconds spent commanding the upward target
@@ -92,6 +93,7 @@ auto_repeat = False         # set True to loop continuously
 # Pose bookkeeping
 rest_cup_pos = None
 rest_cup_ori = None
+reset_start_joint_pos = None
 
 # State tracking
 state = State.RESETTING_JOINTS
@@ -155,6 +157,21 @@ def get_json_array(key):
         raise RuntimeError(f"Could not parse Redis key {key}: {value!r}") from exc
 
 
+def get_current_joint_position():
+    if ENV == "real":
+        return get_json_array(redis_keys.joint_sensor_position)
+    return get_json_array(redis_keys.joint_task_current_position)
+
+
+def interpolate_joint_reset_goal():
+    if reset_start_joint_pos is None:
+        return default_joint_pos
+
+    alpha = min(1.0, loop_time / reset_ramp_duration)
+    alpha_smooth = alpha * alpha * (3.0 - 2.0 * alpha)
+    return reset_start_joint_pos + alpha_smooth * (default_joint_pos - reset_start_joint_pos)
+
+
 def enter_cartesian_hold_from_current_pose():
     active = redis_client.get(redis_keys.active_controller)
     if active is None:
@@ -178,6 +195,20 @@ def enter_cartesian_hold_from_current_pose():
     return current_pos, current_ori
 
 
+def seed_cartesian_hold_if_active():
+    active = redis_client.get(redis_keys.active_controller)
+    if active is None:
+        raise RuntimeError(f"Missing Redis key: {redis_keys.active_controller}")
+
+    active = active.decode("utf-8")
+    if active != cartesian_controller:
+        return
+
+    current_pos = get_json_array(redis_keys.cartesian_task_current_position)
+    current_ori = get_json_array(redis_keys.cartesian_task_current_orientation)
+    set_cartesian_goal(current_pos, current_ori)
+
+
 # loop at 200 Hz
 loop_time = 0.0
 dt = 0.005
@@ -189,9 +220,11 @@ print("=" * 60)
 print("KENDAMA JOLT CONTROLLER")
 print("=" * 60)
 
-# Start in joint control mode to reset to known position
+# Seed the joint task at the measured pose before activating joint control.
+seed_cartesian_hold_if_active()
+reset_start_joint_pos = get_current_joint_position()
+set_joint_goal(reset_start_joint_pos)
 set_active_controller(joint_controller)
-set_joint_goal(default_joint_pos)
 
 print("Resetting to default joint position...")
 reset_start_time = loop_time
@@ -204,17 +237,10 @@ try:
         time.sleep(max(0, loop_time - (time.perf_counter_ns() * 1e-9 - init_time)))
 
         if state == State.RESETTING_JOINTS:
-            set_joint_goal(default_joint_pos)
+            reset_goal = interpolate_joint_reset_goal()
+            set_joint_goal(reset_goal)
 
-            # Use real sensor joint position in real mode; controller current_position can be stale.
-            if ENV == "real":
-                current_joint_position = np.array(
-                    json.loads(redis_client.get(redis_keys.joint_sensor_position))
-                )
-            else:
-                current_joint_position = np.array(
-                    json.loads(redis_client.get(redis_keys.joint_task_current_position))
-                )
+            current_joint_position = get_current_joint_position()
 
             joint_error = np.linalg.norm(default_joint_pos - current_joint_position)
 

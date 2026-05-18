@@ -1,0 +1,12 @@
+Webui HTML file has been created successfully.
+---------- LoopTimer statistics for RobotControllerRedisInterface Timer for controller on robot: Titania: ----------
+Elapsed time                         : 14.1071 s
+Time that should have been elapsed   : 14.045 s
+Elapsed timer cycles                 : 14045
+Desired running frequency            : 1000 Hz
+Actual running frequency             : 995.595 Hz
+Average loop wait time               : 0.918263 ms
+Number of overtime cycles            : 5
+Percentage of overtime cycles        : 0.0355999 %
+Average overtime on overtime cycles  : 12.428 ms
+

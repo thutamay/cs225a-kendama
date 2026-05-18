@@ -1,0 +1,13 @@
+Using Rizon 4 specifications
+[2026-05-18 02:18:29.548] [info] | | | | | | | | | |  Flexiv RDK v1.9  | | | | | | | | | |
+[2026-05-18 02:18:30.654] [info] [flexiv::rdk::Robot] Searching for [Rizon4R-062043] ...
+[2026-05-18 02:18:30.704] [info] [flexiv::rdk::Robot] Connected to the robot
+[2026-05-18 02:18:30.854] [info] [flexiv::rdk::Robot] Validated license: RDK-Professional
+[2026-05-18 02:18:30.855] [info] [flexiv::rdk::Robot] Initialization complete
+[2026-05-18 02:18:30.858] [info] Enabling robot ...
+[2026-05-18 02:18:30.958] [info] Robot is now operational
+[2026-05-18 02:18:30.978] [info] [flexiv::rdk::Robot] Control mode switched to [NRT_PRIMITIVE_EXECUTION]
+[2026-05-18 02:18:30.999] [info] Zeroing force/torque sensors, make sure nothing is in contact with the robot
+[2026-05-18 02:18:31.999] [info] Sensor zeroing complete
+[2026-05-18 02:18:43.999] [info] Initialization complete
+[2026-05-18 02:18:44.049] [info] [flexiv::rdk::Robot] Control mode switched to [RT_JOINT_TORQUE]
