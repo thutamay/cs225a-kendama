@@ -43,6 +43,7 @@ class RedisKeys:
     joint_task_goal_velocity: str = f"opensai::controllers::{robot_name}::joint_controller::joint_task::goal_velocity"
     joint_task_goal_acceleration: str = f"opensai::controllers::{robot_name}::joint_controller::joint_task::goal_acceleration"
     joint_task_current_position: str = f"opensai::controllers::{robot_name}::joint_controller::joint_task::current_position"
+    joint_sensor_position: str = f"opensai::sensors::{robot_name}::joint_positions"
     ball_pose: str = "opensai::sensors::KendamaBall::object_pose"
     ball_velocity: str = "opensai::sensors::KendamaBall::object_velocity"
     active_controller: str = f"opensai::controllers::{robot_name}::active_controller_name"
@@ -78,13 +79,14 @@ LOWERED_START_JOINT_POS_PARALLEL_Y = np.array([
 default_joint_pos = LOWERED_START_JOINT_POS_PARALLEL_Y
 
 # Motion + timing parameters
-joint_arrival_threshold = 3e-2
+joint_arrival_threshold = 8e-2   # rad; loosened so real robot reset does not get stuck forever
+reset_timeout = 12.0              # seconds; continue if close enough after timeout
 idle_hold_duration = 1.0
-jolt_height = 0.05         # meters cup rises during JOLT_UP
-jolt_up_duration = 0.15     # seconds spent commanding the upward target
-landing_dip = 0.02          # meters cup dips below rest to damp landing
-jolt_down_duration = 0.35   # seconds to hold the dip
-settle_duration = 0.5       # seconds to blend back to rest height
+jolt_height = 0.01         # meters cup rises during JOLT_UP
+jolt_up_duration = 0.60     # seconds spent commanding the upward target
+landing_dip = 0.005          # meters cup dips below rest to damp landing
+jolt_down_duration = 0.60   # seconds to hold the dip
+settle_duration = 1.0       # seconds to blend back to rest height
 auto_repeat = False         # set True to loop continuously
 
 # Pose bookkeeping
@@ -159,6 +161,8 @@ set_active_controller(joint_controller)
 set_joint_goal(default_joint_pos)
 
 print("Resetting to default joint position...")
+reset_start_time = loop_time
+last_reset_print_time = -1.0
 
 
 try:
@@ -167,12 +171,29 @@ try:
         time.sleep(max(0, loop_time - (time.perf_counter_ns() * 1e-9 - init_time)))
 
         if state == State.RESETTING_JOINTS:
-            current_joint_position = np.array(
-                json.loads(redis_client.get(redis_keys.joint_task_current_position))
-            )
+            # Use real sensor joint position in real mode; controller current_position can be stale.
+            if ENV == "real":
+                current_joint_position = np.array(
+                    json.loads(redis_client.get(redis_keys.joint_sensor_position))
+                )
+            else:
+                current_joint_position = np.array(
+                    json.loads(redis_client.get(redis_keys.joint_task_current_position))
+                )
+
             joint_error = np.linalg.norm(default_joint_pos - current_joint_position)
-            if joint_error < joint_arrival_threshold:
-                print("Default joint position reached. Capturing cup pose and going idle.")
+
+            if loop_time - last_reset_print_time > 0.5:
+                print(f"Reset joint error: {joint_error:.4f}")
+                last_reset_print_time = loop_time
+
+            reset_timed_out = (loop_time - reset_start_time) > reset_timeout
+
+            if joint_error < joint_arrival_threshold or reset_timed_out:
+                if reset_timed_out:
+                    print(f"Reset timeout reached with joint_error={joint_error:.4f}; continuing.")
+                else:
+                    print("Default joint position reached. Capturing cup pose and going idle.")
                 set_active_controller(cartesian_controller)
                 time.sleep(0.1)
                 rest_cup_pos = np.array(
@@ -198,12 +219,20 @@ try:
                 print("Starting JOLT_UP.")
 
         elif state == State.JOLT_UP:
-            # Pure vertical motion: keep XY and orientation locked to the rest pose.
+            # Smooth vertical ramp upward instead of an abrupt step.
             if rest_cup_pos is None:
                 continue
-            up_goal = np.array([rest_cup_pos[0], rest_cup_pos[1], rest_cup_pos[2] + jolt_height])
+            elapsed = loop_time - state_entry_time
+            alpha = min(1.0, elapsed / jolt_up_duration)
+
+            # Smoothstep easing: zero slope at start and end.
+            alpha_smooth = alpha * alpha * (3.0 - 2.0 * alpha)
+
+            target_z = rest_cup_pos[2] + alpha_smooth * jolt_height
+            up_goal = np.array([rest_cup_pos[0], rest_cup_pos[1], target_z])
             set_cartesian_goal(up_goal, rest_cup_ori)
-            if (loop_time - state_entry_time) > jolt_up_duration:
+
+            if elapsed > jolt_up_duration:
                 state = State.JOLT_DOWN
                 state_entry_time = loop_time
                 print("Switching to JOLT_DOWN for landing dampening.")
