@@ -15,6 +15,7 @@ OPENSAI_CONFIG_KEY="::sai-interfaces-webui::config_file_name"
 PYTHON_SCRIPT="${REPO_DIR}/kendama_throw_and_catch.py"
 ZERO_JOINTS="[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"
 CONTROL_TORQUES_KEY="opensai::commands::Titania::control_torques"
+PYTHON_ARGS=("$@")
 
 DRIVER_PID=""
 OPENSAI_PID=""
@@ -175,6 +176,10 @@ sleep 0.2
 echo "Current active controller:"
 redis-cli GET "opensai::controllers::Titania::active_controller_name" || true
 
-echo "Running kendama_throw_and_catch.py --real"
+if ((${#PYTHON_ARGS[@]})); then
+    echo "Running kendama_throw_and_catch.py --real ${PYTHON_ARGS[*]}"
+else
+    echo "Running kendama_throw_and_catch.py --real"
+fi
 cd "${REPO_DIR}"
-python3 "${PYTHON_SCRIPT}" --real
+python3 -u "${PYTHON_SCRIPT}" --real "${PYTHON_ARGS[@]}"

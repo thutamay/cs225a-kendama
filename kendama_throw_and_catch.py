@@ -26,6 +26,11 @@ real_robot_config_file = "single_rizon_real.xml"
 simulation_config_file = "single_rizon_vis.xml"
 parser = argparse.ArgumentParser()
 parser.add_argument("--real", action="store_true", help="Run against the real robot instead of simulation.")
+parser.add_argument(
+    "--hold-only",
+    action="store_true",
+    help="Stop after the reset-to-Cartesian-hold transition and do not command the jolt.",
+)
 args = parser.parse_args()
 
 ENV = "real" if args.real else "simulation"
@@ -49,6 +54,7 @@ class RedisKeys:
     joint_task_goal_acceleration: str = f"opensai::controllers::{robot_name}::joint_controller::joint_task::goal_acceleration"
     joint_task_current_position: str = f"opensai::controllers::{robot_name}::joint_controller::joint_task::current_position"
     joint_sensor_position: str = f"opensai::sensors::{robot_name}::joint_positions"
+    joint_sensor_velocity: str = f"opensai::sensors::{robot_name}::joint_velocities"
     ball_pose: str = "opensai::sensors::KendamaBall::object_pose"
     ball_velocity: str = "opensai::sensors::KendamaBall::object_velocity"
     active_controller: str = f"opensai::controllers::{robot_name}::active_controller_name"
@@ -85,14 +91,16 @@ default_joint_pos = LOWERED_START_JOINT_POS_PARALLEL_Y
 
 # Motion + timing parameters
 joint_arrival_threshold = 0.10    # rad max per-joint error before leaving reset
+joint_velocity_settle_threshold = 0.03  # rad/s max per-joint speed before Cartesian mode on hardware
+reset_settle_duration = 0.5 if ENV == "real" else 0.0
 reset_timeout = 35.0              # seconds; real reset aborts on timeout
 reset_ramp_duration = 20.0        # seconds; avoid a large joint-space step on hardware
-idle_hold_duration = 1.0
-jolt_height = 0.01         # meters cup rises during JOLT_UP
-jolt_up_duration = 0.60     # seconds spent commanding the upward target
-landing_dip = 0.005          # meters cup dips below rest to damp landing
-jolt_down_duration = 0.60   # seconds to hold the dip
-settle_duration = 1.0       # seconds to blend back to rest height
+idle_hold_duration = 2.75 if ENV == "real" else 1.0
+jolt_height = 0.005 if ENV == "real" else 0.01         # meters cup rises during JOLT_UP
+jolt_up_duration = 1.50 if ENV == "real" else 0.60     # seconds spent commanding the upward target
+landing_dip = 0.002 if ENV == "real" else 0.005        # meters cup dips below rest to damp landing
+jolt_down_duration = 1.50 if ENV == "real" else 0.60   # seconds to ramp toward the dip
+settle_duration = 2.0 if ENV == "real" else 1.0        # seconds to blend back to rest height
 auto_repeat = False         # set True to loop continuously
 
 # Pose bookkeeping
@@ -105,7 +113,7 @@ flange_fk_chain = None
 state = State.RESETTING_JOINTS
 state_entry_time = 0.0
 
-cycle_requested = True  # run one jolt sequence after reset by default
+cycle_requested = not args.hold_only  # run one jolt sequence after reset by default
 
 # redis client
 redis_client = redis.Redis()
@@ -145,6 +153,11 @@ def set_joint_goal(position):
         redis_keys.joint_task_goal_acceleration,
         json.dumps(np.zeros_like(position).tolist()),
     )
+
+
+def smoothstep(alpha):
+    alpha = min(1.0, max(0.0, alpha))
+    return alpha * alpha * (3.0 - 2.0 * alpha)
 
 
 def rotation_from_rpy(rpy):
@@ -305,12 +318,16 @@ def get_current_joint_position():
     return get_json_array(redis_keys.joint_task_current_position)
 
 
+def get_current_joint_velocity():
+    return get_json_array(redis_keys.joint_sensor_velocity)
+
+
 def interpolate_joint_reset_goal():
     if reset_start_joint_pos is None:
         return default_joint_pos
 
     alpha = min(1.0, loop_time / reset_ramp_duration)
-    alpha_smooth = alpha * alpha * (3.0 - 2.0 * alpha)
+    alpha_smooth = smoothstep(alpha)
     return reset_start_joint_pos + alpha_smooth * (default_joint_pos - reset_start_joint_pos)
 
 
@@ -361,6 +378,21 @@ init_time = time.perf_counter_ns() * 1e-9
 print("=" * 60)
 print("KENDAMA JOLT CONTROLLER")
 print("=" * 60)
+if ENV == "real":
+    print(
+        "Real reset requires "
+        f"max_joint_error < {joint_arrival_threshold:.3f} rad and "
+        f"max_joint_velocity < {joint_velocity_settle_threshold:.3f} rad/s "
+        f"for {reset_settle_duration:.2f} s before Cartesian mode."
+    )
+    print(
+        "Real jolt profile: "
+        f"idle={idle_hold_duration:.2f}s, height={jolt_height:.4f}m, "
+        f"up={jolt_up_duration:.2f}s, down={jolt_down_duration:.2f}s, "
+        f"dip={landing_dip:.4f}m, settle={settle_duration:.2f}s."
+    )
+if args.hold_only:
+    print("Hold-only diagnostic enabled: Cartesian hold will remain active and JOLT_UP is disabled.")
 
 # Seed the joint task at the measured pose before activating joint control.
 seed_cartesian_hold_if_active()
@@ -371,6 +403,7 @@ set_active_controller(joint_controller)
 print("Resetting to default joint position...")
 reset_start_time = loop_time
 last_reset_print_time = -1.0
+reset_ready_since = None
 
 
 try:
@@ -386,17 +419,42 @@ try:
 
             joint_errors = np.abs(default_joint_pos - current_joint_position)
             joint_error = np.max(joint_errors)
+            joint_velocity = 0.0
+            velocity_ready = True
+            if ENV == "real":
+                current_joint_velocity = get_current_joint_velocity()
+                joint_velocity = np.max(np.abs(current_joint_velocity))
+                velocity_ready = joint_velocity < joint_velocity_settle_threshold
+
+            position_ready = joint_error < joint_arrival_threshold
+            reset_ready = position_ready and velocity_ready
+            if ENV == "real":
+                if reset_ready:
+                    if reset_ready_since is None:
+                        reset_ready_since = loop_time
+                    reset_ready = (loop_time - reset_ready_since) >= reset_settle_duration
+                else:
+                    reset_ready_since = None
 
             if loop_time - last_reset_print_time > 0.5:
-                print(f"Reset max joint error: {joint_error:.4f}")
+                if ENV == "real":
+                    settled_for = 0.0 if reset_ready_since is None else loop_time - reset_ready_since
+                    print(
+                        f"Reset max joint error: {joint_error:.4f}, "
+                        f"max joint velocity: {joint_velocity:.4f}, "
+                        f"settled_for: {settled_for:.2f}s"
+                    )
+                else:
+                    print(f"Reset max joint error: {joint_error:.4f}")
                 last_reset_print_time = loop_time
 
             reset_timed_out = (loop_time - reset_start_time) > reset_timeout
 
-            if joint_error < joint_arrival_threshold or reset_timed_out:
+            if reset_ready or reset_timed_out:
                 if reset_timed_out and ENV == "real":
                     raise RuntimeError(
-                        f"Reset timed out on real robot with max_joint_error={joint_error:.4f}; "
+                        f"Reset timed out on real robot with max_joint_error={joint_error:.4f}, "
+                        f"max_joint_velocity={joint_velocity:.4f}; "
                         "staying out of Cartesian mode."
                     )
                 if reset_timed_out:
@@ -427,7 +485,7 @@ try:
             alpha = min(1.0, elapsed / jolt_up_duration)
 
             # Smoothstep easing: zero slope at start and end.
-            alpha_smooth = alpha * alpha * (3.0 - 2.0 * alpha)
+            alpha_smooth = smoothstep(alpha)
 
             target_z = rest_cup_pos[2] + alpha_smooth * jolt_height
             up_goal = np.array([rest_cup_pos[0], rest_cup_pos[1], target_z])
@@ -443,12 +501,14 @@ try:
             if rest_cup_pos is None:
                 continue
             elapsed = loop_time - state_entry_time
+            up_z = rest_cup_pos[2] + jolt_height
             dip_z = rest_cup_pos[2] - landing_dip
             if elapsed < jolt_down_duration:
-                target_z = dip_z
+                alpha = smoothstep(elapsed / jolt_down_duration)
+                target_z = up_z * (1.0 - alpha) + dip_z * alpha
             elif elapsed < jolt_down_duration + settle_duration:
-                alpha = (elapsed - jolt_down_duration) / settle_duration
-                target_z = dip_z * (1 - alpha) + rest_cup_pos[2] * alpha
+                alpha = smoothstep((elapsed - jolt_down_duration) / settle_duration)
+                target_z = dip_z * (1.0 - alpha) + rest_cup_pos[2] * alpha
             else:
                 print("Landing dampened. Returning to IDLE.")
                 state = State.IDLE
