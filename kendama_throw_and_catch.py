@@ -87,7 +87,8 @@ LOWERED_START_JOINT_POS_PARALLEL_Y = np.array([
     1.57079632679,
 ])
 
-default_joint_pos = LOWERED_START_JOINT_POS_PARALLEL_Y
+
+default_joint_pos = LOWERED_START_JOINT_POS_PARALLEL_Y 
 
 # Motion + timing parameters
 joint_arrival_threshold = 0.10    # rad max per-joint error before leaving reset
@@ -130,6 +131,17 @@ if default_joint_pos is None:
     print("Default joint pose not set; using lowered start pose.")
 else:
     print("Using lowered start joint pose:", default_joint_pos)
+
+
+def get_pos_from_redis(redis_cli, obj_name):
+    pose_key = f"opensai::sensors::{obj_name}::object_pose"
+    pose_value = redis_cli.get(pose_key)
+    if pose_value is None:
+        raise RuntimeError(f"Missing Redis key: {pose_key}")
+    try:
+        return np.array(json.loads(pose_value))
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not parse Redis key {pose_key}: {pose_value!r}") from exc
 
 
 def set_cartesian_goal(position, orientation):
